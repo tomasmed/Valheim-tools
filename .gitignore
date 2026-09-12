@@ -1,0 +1,22 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+drakkar/drakkar
+drakkar/drakkar.exe
+
+# Cursor and state files
+*.cursor
+.drakkar.cursor*
+valheim-data/
+drakkar-data/
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

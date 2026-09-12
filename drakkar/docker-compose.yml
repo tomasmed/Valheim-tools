@@ -1,0 +1,34 @@
+services:
+  # Example Valheim dedicated server container
+  valheim-server:
+    image: lloesche/valheim-server:latest
+    container_name: valheim-server
+    environment:
+      - SERVER_NAME=My Valheim Realm
+      - WORLD_NAME=Wowosi
+      - SERVER_PASS=SecretPass123
+    volumes:
+      - ./valheim-data:/config
+    ports:
+      - 2456-2457:2456-2457/udp
+    restart: unless-stopped
+
+  # Drakkar Universal Log Shipper Sidecar
+  drakkar-shipper:
+    image: ghcr.io/tomasmed/valheim-drakkar:latest
+    container_name: valheim-drakkar
+    restart: unless-stopped
+    volumes:
+      # Mount server logs read-only
+      - ./valheim-data/logs:/logs:ro
+      # Persist cursor state
+      - ./drakkar-data:/data
+    environment:
+      - DRAKKAR_DASHBOARD_URL=https://valheim-dash.vercel.app
+      - DRAKKAR_SECRET=YOUR_SERVER_TOKEN_HERE
+      - DRAKKAR_LOG_PATH=/logs/valheim_server.log
+      - DRAKKAR_CURSOR_PATH=/data/.drakkar.cursor
+      - DRAKKAR_BATCH_SIZE=25
+      - DRAKKAR_BATCH_TIME_SEC=3
+    depends_on:
+      - valheim-server
