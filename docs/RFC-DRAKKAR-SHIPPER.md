@@ -147,9 +147,9 @@ To maintain maximum compatibility without maintenance fragmentation:
 ---
 
 ## 6. Implementation Checklist
-- [ ] Initialize `drakkar/` package in `tomasmed/Valheim-tools`.
-- [ ] Implement file tailer with cursor offset tracking.
-- [ ] Implement debounced channel batching and HTTP client with backoff.
-- [ ] Add GitHub Actions workflow for cross-compilation release binaries.
-- [ ] Add GitHub Container Registry action for automated multi-arch Docker image builds.
-- [ ] Update repository `README.md` with Drakkar quickstart guides.
+- [x] Initialize `drakkar/` package in `tomasmed/Valheim-tools`.
+- [x] Implement file tailer with cursor offset tracking.
+- [x] Implement debounced channel batching and HTTP client with backoff.
+- [x] Add GitHub Actions workflow for cross-compilation release binaries.
+- [x] Add GitHub Container Registry action for automated multi-arch Docker image builds.
+- [x] Update repository `README.md` with Drakkar quickstart guides.
