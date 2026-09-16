@@ -14,6 +14,10 @@ drakkar/drakkar.exe
 valheim-data/
 drakkar-data/
 
+# Python
+__pycache__/
+*.pyc
+
 # OS / Editor artifacts
 .DS_Store
 Thumbs.db

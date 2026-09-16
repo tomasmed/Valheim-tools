@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Valheim Telemetry Shipper Daemon (Python 3)
 Streams real-time server events from server.log or Player.log to Valheim Mead Hall.
@@ -22,17 +22,98 @@ from datetime import datetime, timezone
 # Regex signatures matching Valheim Dedicated Server log output
 RE_JOIN_CODE = re.compile(r'join code (\d+)|Join Code\s*[:=]?\s*(\d{5,8})', re.IGNORECASE)
 RE_VERSION = re.compile(r'Valheim version:\s*([0-9\.]+)|Console:\s*Valheim\s*([0-9\.]+)', re.IGNORECASE)
-RE_DAY = re.compile(r'day:(\d+)|Day (\d+)', re.IGNORECASE)
+RE_DAY = re.compile(r'(?:day|Day)\s*[:=]?\s*(\d+)|time\s*[:=]?\s*[\d\.]+\s*,\s*day\s*[:=]?\s*(\d+)', re.IGNORECASE)
 RE_WORLD = re.compile(r'ZNet\.LoadWorld:\s*([^\s\(]+)|Get create world\s*([^\r\n]+)', re.IGNORECASE)
 RE_ACTIVE_PLAYERS = re.compile(r'is active with (\d+) player\(s\)', re.IGNORECASE)
-RE_PLAYER_LOGIN = re.compile(r'Got character ZDOID from ([\w\s]+) : ([\d\:]+)', re.IGNORECASE)
-RE_PLAYER_LOGOUT = re.compile(r'Destroying abandoned non persistent zdo ([\d\:]+)', re.IGNORECASE)
+RE_PLAYER_LOGIN = re.compile(r'Got character ZDOID from (.+?)\s*:\s*(-?\d+:\d+)', re.IGNORECASE)
+RE_PLAYER_LOGOUT = re.compile(r'Destroying abandoned non persistent zdo\s+(-?\d+:\d+)', re.IGNORECASE)
 RE_WORLD_SAVE = re.compile(r'World save \(\d+/\d+\) done|World saved \( ([\d\.]+)ms \)|Save World Thread Started', re.IGNORECASE)
 RE_SOCKET_CLOSED = re.compile(r'ZPlayFabSocket::Dispose\. State: CLOSED|RPC_Disconnect|Player connection lost|Closing socket (\d+)|Destroying player (\d+)', re.IGNORECASE)
 RE_ZERO_PLAYERS = re.compile(r'now 0 player\(s\)', re.IGNORECASE)
 
 def iso_now():
     return datetime.now(timezone.utc).isoformat()
+
+def get_server_process_stats(log_path=None):
+    """
+    Locates the valheim_server process to extract:
+    - uptimeSeconds (int)
+    - memoryUsageMb (int)
+    - startedAt (ISO-8601 UTC string)
+
+    Supports Linux /proc, Windows/Unix ps, and falls back to server.log creation time.
+    """
+    stats = {}
+    now_ts = time.time()
+
+    # 1. Linux /proc inspection (zero dependencies)
+    if os.path.exists("/proc"):
+        try:
+            for entry in os.scandir("/proc"):
+                if not entry.name.isdigit():
+                    continue
+                pid = entry.name
+                comm_path = f"/proc/{pid}/comm"
+                cmdline_path = f"/proc/{pid}/cmdline"
+                is_valheim = False
+
+                try:
+                    if os.path.exists(comm_path):
+                        with open(comm_path, "r", encoding="utf-8", errors="ignore") as f:
+                            comm = f.read().strip()
+                            if "valheim_server" in comm:
+                                is_valheim = True
+                    if not is_valheim and os.path.exists(cmdline_path):
+                        with open(cmdline_path, "r", encoding="utf-8", errors="ignore") as f:
+                            cmdline = f.read()
+                            if "valheim_server" in cmdline:
+                                is_valheim = True
+                except Exception:
+                    continue
+
+                if is_valheim:
+                    # In Linux, mtime of /proc/<pid> is the process start time
+                    try:
+                        start_ts = os.path.getmtime(f"/proc/{pid}")
+                        uptime_sec = max(0, int(now_ts - start_ts))
+                        stats["uptimeSeconds"] = uptime_sec
+                        stats["startedAt"] = datetime.fromtimestamp(start_ts, tz=timezone.utc).isoformat()
+                    except Exception:
+                        pass
+
+                    # Memory RSS from /proc/<pid>/status
+                    try:
+                        status_path = f"/proc/{pid}/status"
+                        if os.path.exists(status_path):
+                            with open(status_path, "r", encoding="utf-8", errors="ignore") as f:
+                                for sline in f:
+                                    if sline.startswith("VmRSS:"):
+                                        parts = sline.split()
+                                        if len(parts) >= 2 and parts[1].isdigit():
+                                            stats["memoryUsageMb"] = int(parts[1]) // 1024
+                                        break
+                    except Exception:
+                        pass
+
+                    if "uptimeSeconds" in stats:
+                        return stats
+        except Exception:
+            pass
+
+    # 2. Fallback: inspect log file metadata if available
+    if log_path and os.path.exists(log_path):
+        try:
+            create_ts = os.path.getctime(log_path)
+            mtime_ts = os.path.getmtime(log_path)
+            start_ts = min(create_ts, mtime_ts)
+            uptime_sec = max(0, int(now_ts - start_ts))
+            stats["uptimeSeconds"] = uptime_sec
+            stats["startedAt"] = datetime.fromtimestamp(start_ts, tz=timezone.utc).isoformat()
+        except Exception:
+            pass
+
+    return stats
+
 
 def send_telemetry(dashboard_url, secret, payload):
     url = f"{dashboard_url.rstrip('/')}/api/telemetry"
@@ -75,6 +156,7 @@ def main():
     parser.add_argument("--secret", default=os.environ.get("TELEMETRY_SECRET", ""), help="Realm Server Secret Token")
     parser.add_argument("--log", default="", help="Path to Valheim server.log or Player.log")
     parser.add_argument("--interval", type=float, default=1.5, help="Poll interval in seconds")
+    parser.add_argument("--day", type=int, default=None, help="Initial in-game world day (override if server log omits day lines)")
     args = parser.parse_args()
 
     log_path = args.log if args.log else resolve_default_log()
@@ -90,6 +172,8 @@ def main():
     else:
         print("Security:     No Secret Token provided (local/public default)")
     print(f"Poll Rate:    {args.interval}s")
+    if args.day is not None:
+        print(f"Manual Day:   Day {args.day} (CLI override)")
     print("==========================================================")
 
     while not os.path.exists(log_path):
@@ -101,7 +185,7 @@ def main():
     active_players = {}
     discovered_join_code = None
     discovered_version = None
-    discovered_day = None
+    discovered_day = args.day
     discovered_save = None
     discovered_world = None
 
@@ -161,7 +245,7 @@ def main():
     if discovered_version:
         server_init["version"] = discovered_version
         print(f"  Discovered Version:   v{discovered_version}")
-    if discovered_day:
+    if discovered_day is not None:
         server_init["dayCount"] = discovered_day
         print(f"  Discovered Day:       Day {discovered_day}")
     if discovered_world:
@@ -169,6 +253,17 @@ def main():
         print(f"  Discovered World:     {discovered_world}")
     if discovered_save:
         server_init["lastSavedAt"] = discovered_save
+
+    proc_stats = get_server_process_stats(log_path)
+    if "uptimeSeconds" in proc_stats:
+        server_init["uptimeSeconds"] = proc_stats["uptimeSeconds"]
+        uptime_hours = round(proc_stats["uptimeSeconds"] / 3600, 1)
+        mem_str = f" ({proc_stats['memoryUsageMb']} MB)" if "memoryUsageMb" in proc_stats else ""
+        print(f"  Process Uptime:       {uptime_hours} hours{mem_str}")
+    if "memoryUsageMb" in proc_stats:
+        server_init["memoryUsageMb"] = proc_stats["memoryUsageMb"]
+    if "startedAt" in proc_stats:
+        server_init["startedAt"] = proc_stats["startedAt"]
 
     for p in active_players.values():
         status = "ONLINE" if p.get("isOnline") else "offline"
@@ -291,11 +386,19 @@ def main():
                     })
 
             else:
-                # Periodic heartbeat every 45s
-                if time.time() - last_heartbeat > 45:
+                # Periodic heartbeat every 30s
+                if time.time() - last_heartbeat > 30:
                     last_heartbeat = time.time()
+                    hb_server = {"isOnline": True}
+                    stats = get_server_process_stats(log_path)
+                    if "uptimeSeconds" in stats:
+                        hb_server["uptimeSeconds"] = stats["uptimeSeconds"]
+                    if "memoryUsageMb" in stats:
+                        hb_server["memoryUsageMb"] = stats["memoryUsageMb"]
+                    if "startedAt" in stats:
+                        hb_server["startedAt"] = stats["startedAt"]
                     send_telemetry(args.url, args.secret, {
-                        "server": {"isOnline": True}
+                        "server": hb_server
                     })
                 time.sleep(args.interval)
 

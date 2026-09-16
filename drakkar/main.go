@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -68,11 +69,13 @@ func printBanner(cfg Config) {
 }
 
 func performCatchUp(cfg Config, tracker *StateTracker, client *HTTPClient) {
-	// If cursor file already exists and has valid offset, skip catch-up
+	var savedCursor int64 = -1
 	if _, err := os.Stat(cfg.CursorPath); err == nil {
 		data, err := os.ReadFile(cfg.CursorPath)
-		if err == nil && len(strings.TrimSpace(string(data))) > 0 {
-			return
+		if err == nil {
+			if val, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); err == nil && val > 0 {
+				savedCursor = val
+			}
 		}
 	}
 
@@ -83,11 +86,14 @@ func performCatchUp(cfg Config, tracker *StateTracker, client *HTTPClient) {
 	}
 	defer file.Close()
 
-	log.Printf("[Drakkar] Performing initial catch-up scan on %s...", cfg.LogPath)
+	log.Printf("[Drakkar] Scanning %s to initialize server state...", cfg.LogPath)
 	reader := bufio.NewReader(file)
 	var totalBytes int64
 
 	for {
+		if savedCursor > 0 && totalBytes >= savedCursor {
+			break
+		}
 		line, err := reader.ReadString('\n')
 		totalBytes += int64(len(line))
 		cleanLine := strings.TrimRight(line, "\r\n")
@@ -104,10 +110,10 @@ func performCatchUp(cfg Config, tracker *StateTracker, client *HTTPClient) {
 	}
 
 	server, players := tracker.GetSnapshot()
-	log.Printf("[Drakkar] Catch-up complete (%d bytes). JoinCode: '%s', World: '%s', Version: '%s', Players: %d",
+	log.Printf("[Drakkar] State restored (%d bytes scanned). JoinCode: '%s', World: '%s', Version: '%s', Players: %d",
 		totalBytes, server.JoinCode, server.WorldName, server.Version, len(players))
 
-	// Send initial snapshot
+	// Send initial snapshot to Mead Hall
 	payload := TelemetryPayload{
 		Server:  &server,
 		Players: players,
@@ -118,6 +124,8 @@ func performCatchUp(cfg Config, tracker *StateTracker, client *HTTPClient) {
 		log.Printf("[Drakkar] Initial state synced with Mead Hall.")
 	}
 
-	// Save initial cursor
-	_ = os.WriteFile(cfg.CursorPath, []byte(fmt.Sprintf("%d", totalBytes)), 0644)
+	// If no previous cursor existed, save the new cursor
+	if savedCursor <= 0 {
+		_ = os.WriteFile(cfg.CursorPath, []byte(fmt.Sprintf("%d", totalBytes)), 0644)
+	}
 }

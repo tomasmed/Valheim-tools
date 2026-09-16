@@ -15,7 +15,8 @@ param(
   [string]$DashboardUrl = "http://localhost:3000",
   [string]$LogPath = "",
   [string]$Secret = "",
-  [int]$PollIntervalMs = 1500
+  [int]$PollIntervalMs = 1500,
+  [int]$Day = 0
 )
 
 # Resolve default log location (check server.log first, then Player.log)
@@ -70,6 +71,7 @@ function Get-ServerProcessStats {
     return @{
       uptimeSeconds = [int]((Get-Date) - $proc.StartTime).TotalSeconds
       memoryUsageMb = [int][math]::Round($proc.WorkingSet64 / 1MB)
+      startedAt = $proc.StartTime.ToUniversalTime().ToString("o")
     }
   }
   return @{}
@@ -109,7 +111,7 @@ while ($null -ne ($line = $reader.ReadLine())) {
   if ($line -match 'Valheim version:\s*([0-9\.]+)' -or $line -match 'Console:\s*Valheim\s*([0-9\.]+)') {
     $discoveredVersion = $matches[1]
   }
-  if ($line -match 'day:(\d+)' -or $line -match 'Day (\d+)') {
+  if ($line -match '(?:day|Day)\s*[:=]?\s*(\d+)' -or $line -match 'time\s*[:=]?\s*[\d\.]+\s*,\s*day\s*[:=]?\s*(\d+)') {
     $discoveredDay = [int]$matches[1]
   }
   if ($line -match 'World save \(\d+/\d+\) done' -or $line -match 'World saved \( ([\d\.]+)ms \)' -or $line -match 'Save World Thread Started') {
@@ -125,7 +127,7 @@ while ($null -ne ($line = $reader.ReadLine())) {
   }
 
   # Character Login
-  if ($line -match 'Got character ZDOID from ([\w\s]+) : ([\d\:]+)') {
+  if ($line -match 'Got character ZDOID from (.+?)\s*:\s*(-?\d+:\d+)') {
     $playerName = $matches[1].Trim()
     $zdoid = $matches[2].Trim()
     $timeMatch = $line -match '^(\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2})'
@@ -141,7 +143,7 @@ while ($null -ne ($line = $reader.ReadLine())) {
   }
 
   # Match Player Disconnect by Character ZDOID (Quit Game / Logout)
-  if ($line -match 'Destroying abandoned non persistent zdo ([\d\:]+)') {
+  if ($line -match 'Destroying abandoned non persistent zdo\s+(-?\d+:\d+)') {
     $zdoid = $matches[1]
     $timeMatch = $line -match '^(\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2})'
     $discoTime = if ($timeMatch) { (Get-Date $matches[1]).ToString("o") } else { (Get-Date).ToString("o") }
@@ -171,6 +173,11 @@ while ($null -ne ($line = $reader.ReadLine())) {
   }
 }
 
+# Apply manual -Day override if provided and no day was discovered in logs
+if ($Day -gt 0 -and $null -eq $discoveredDay) {
+  $discoveredDay = $Day
+}
+
 # Initial synchronization
 $activeCount = ($activePlayers.Values | Where-Object { $_.isOnline }).Count
 $initialServer = @{
@@ -195,6 +202,7 @@ $procStats = Get-ServerProcessStats
 if ($procStats.ContainsKey("uptimeSeconds")) {
   $initialServer["uptimeSeconds"] = $procStats["uptimeSeconds"]
   $initialServer["memoryUsageMb"] = $procStats["memoryUsageMb"]
+  if ($procStats.ContainsKey("startedAt")) { $initialServer["startedAt"] = $procStats["startedAt"] }
   $uptimeHours = [math]::Round($procStats["uptimeSeconds"] / 3600, 1)
   Write-Host "  Process Uptime:       $uptimeHours hours ($($procStats['memoryUsageMb']) MB)" -ForegroundColor DarkCyan
 }
@@ -241,7 +249,7 @@ try {
       }
 
       # Match Day Count
-      if ($line -match 'day:(\d+)' -or $line -match 'Day (\d+)') {
+      if ($line -match '(?:day|Day)\s*[:=]?\s*(\d+)' -or $line -match 'time\s*[:=]?\s*[\d\.]+\s*,\s*day\s*[:=]?\s*(\d+)') {
         $day = [int]$matches[1]
         Write-Host "DAY TICK: Day $day" -ForegroundColor Yellow
         Send-Telemetry @{
@@ -260,7 +268,7 @@ try {
       }
 
       # Match Player Entered
-      if ($line -match 'Got character ZDOID from ([\w\s]+) : ([\d\:]+)') {
+      if ($line -match 'Got character ZDOID from (.+?)\s*:\s*(-?\d+:\d+)') {
         $playerName = $matches[1].Trim()
         $zdoid = $matches[2].Trim()
         Write-Host "WARRIOR ARRIVED: $playerName (ZDOID: $zdoid)" -ForegroundColor Green
@@ -286,7 +294,7 @@ try {
       }
 
       # Match Player Disconnect by Character ZDOID (Quit Game / Logout)
-      if ($line -match 'Destroying abandoned non persistent zdo ([\d\:]+)') {
+      if ($line -match 'Destroying abandoned non persistent zdo\s+(-?\d+:\d+)') {
         $zdoid = $matches[1]
         $foundPlayer = $null
         foreach ($name in $activePlayers.Keys) {
@@ -370,12 +378,14 @@ try {
         $lastHeartbeat = $now
         $stats = Get-ServerProcessStats
         if ($stats.ContainsKey("uptimeSeconds")) {
+          $hbServer = @{
+            uptimeSeconds = $stats["uptimeSeconds"]
+            memoryUsageMb = $stats["memoryUsageMb"]
+            isOnline = $true
+          }
+          if ($stats.ContainsKey("startedAt")) { $hbServer["startedAt"] = $stats["startedAt"] }
           Send-Telemetry @{
-            server = @{
-              uptimeSeconds = $stats["uptimeSeconds"]
-              memoryUsageMb = $stats["memoryUsageMb"]
-              isOnline = $true
-            }
+            server = $hbServer
           }
         }
       }

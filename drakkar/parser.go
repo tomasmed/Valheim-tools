@@ -12,10 +12,10 @@ import (
 var (
 	reJoinCode     = regexp.MustCompile(`(?i)(?:join code (\d+)|Join Code\s*[:=]?\s*(\d{5,8}))`)
 	reVersion      = regexp.MustCompile(`(?i)(?:Valheim version:\s*([0-9\.]+)|Console:\s*Valheim\s*([0-9\.]+))`)
-	reDay          = regexp.MustCompile(`(?i)(?:day:(\d+)|Day (\d+))`)
+	reDay          = regexp.MustCompile(`(?i)(?:day:(\d+)|Day (\d+)|time\s*[:=]?\s*[\d\.]+\s*,\s*day\s*[:=]?\s*(\d+))`)
 	reWorld        = regexp.MustCompile(`(?i)(?:ZNet\.LoadWorld:\s*([^\s\(]+)|Get create world\s*([^\r\n]+))`)
-	rePlayerLogin  = regexp.MustCompile(`(?i)Got character ZDOID from ([\w\s]+) : ([\d\:]+)`)
-	rePlayerLogout = regexp.MustCompile(`(?i)Destroying abandoned non persistent zdo ([\d\:]+)`)
+	rePlayerLogin  = regexp.MustCompile(`(?i)Got character ZDOID from (.+?)\s*:\s*(-?\d+:\d+)`)
+	rePlayerLogout = regexp.MustCompile(`(?i)Destroying abandoned non persistent zdo\s+(-?\d+:\d+)`)
 	reWorldSave    = regexp.MustCompile(`(?i)(?:World save \(\d+/\d+\) done|World saved \( ([\d\.]+)ms \)|Save World Thread Started)`)
 	reSocketClosed = regexp.MustCompile(`(?i)(?:ZPlayFabSocket::Dispose\. State: CLOSED|RPC_Disconnect|Player connection lost|Closing socket (\d+)|Destroying player (\d+))`)
 	reZeroPlayers  = regexp.MustCompile(`(?i)now 0 player\(s\)`)
@@ -97,9 +97,12 @@ func (st *StateTracker) ProcessLine(line string, now time.Time) []ServerLogEvent
 
 	// 4. Check Day Counter
 	if match := reDay.FindStringSubmatch(line); len(match) > 0 {
-		dayStr := match[1]
-		if dayStr == "" && len(match) > 2 {
-			dayStr = match[2]
+		var dayStr string
+		for i := 1; i < len(match); i++ {
+			if match[i] != "" {
+				dayStr = match[i]
+				break
+			}
 		}
 		if day, err := strconv.Atoi(dayStr); err == nil {
 			if st.Server.DayCount == nil || *st.Server.DayCount != day {
