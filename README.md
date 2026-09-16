@@ -1,8 +1,8 @@
-﻿# Valheim Tools & Telemetry Shippers 🛡️⚡
+# Valheim Tools & Telemetry Shippers 🛡️⚡
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](https://opensource.org/licenses/MIT)
 [![Valheim 1.0 Ready](https://img.shields.io/badge/Valheim-1.0%20Ready-emerald.svg)](https://valheim-dash.vercel.app)
-[![Zero Binaries](https://img.shields.io/badge/Zero%20Binaries-100%25%20Plaintext-blue.svg)](https://github.com/tomasmed/Valheim-tools)
+[![Drakkar Go](https://img.shields.io/badge/Drakkar-Go%20%2B%20Docker-blue.svg)](https://github.com/tomasmed/Valheim-tools/tree/main/drakkar)
 
 Official open-source log shippers, synchronization scripts, and community utilities for **[Valheim Mead Hall (ValheimDash)](https://valheim-dash.vercel.app)**.
 
@@ -12,29 +12,73 @@ Official open-source log shippers, synchronization scripts, and community utilit
 
 When hosting a dedicated Valheim server with **Crossplay enabled** (Xbox / Steam / PC Game Pass cross-compatibility), standard server pingers (Valve A2S UDP `2457`) are disabled by PlayFab. Furthermore, every time your server restarts, your 6-digit Join Code rotates!
 
-These shippers solve that problem. They non-destructively monitor your server's log file in real time and push live server health, Join Codes, and login events directly to your Mead Hall dashboard and Discord channels.
+These shippers non-destructively monitor your server's log file in real time and push live server health, PlayFab Join Codes, and login events directly to your Mead Hall dashboard and Discord alerts.
 
-- **100% Open-Source & Auditable**: Pure plaintext PowerShell and Python 3. No closed-source `.exe` binaries, no keyloggers, no telemetry bloat.
-- **Non-Locking Shared Read**: Reads files using read-only non-exclusive streams so it never interferes with Valheim or locks disk I/O.
+- **Non-Locking Shared Read**: Reads files using read-only non-exclusive streams so it never locks disk I/O or interferes with the game server.
 - **Zero Mods Required**: Works on pure vanilla Valheim servers as well as modded (BepInEx / ValheimPlus).
+- **100% Open-Source & Auditable**: Distributed under the MIT license.
 
 ---
 
-## 🚀 Quickstart: Choose Your Setup
+## 🛶 Tier 1: Drakkar Universal Shipper (Recommended)
 
-### Option A: Windows Host or Client (PowerShell)
+**Drakkar** is the next-generation compiled Go daemon and turnkey Docker sidecar:
+- **Zero Host Dependencies**: Single static binary without Python or runtime requirements.
+- **Ultra-Lightweight**: Operates under **<15 MB RAM** and **<0.2% CPU**.
+- **Debounced Batching**: Flushes batches every **25 lines** OR **3 seconds** to prevent HTTP request storms.
+- **Rotation Resilience**: Detects file truncation or server restarts and resets cursor offsets cleanly.
+
+### Option 1: Docker Sidecar (Unraid, TrueNAS, VPS)
+
+Mount your Valheim server's log folder read-only into the Drakkar container:
+
+```yaml
+services:
+  drakkar-shipper:
+    image: ghcr.io/tomasmed/valheim-drakkar:latest
+    container_name: valheim-drakkar
+    restart: unless-stopped
+    volumes:
+      - /opt/valheim/data/logs:/logs:ro
+      - ./drakkar-data:/data
+    environment:
+      - DRAKKAR_DASHBOARD_URL=https://valheim-dash.vercel.app
+      - DRAKKAR_SECRET=YOUR_SERVER_TOKEN
+      - DRAKKAR_LOG_PATH=/logs/valheim_server.log
+      - DRAKKAR_CURSOR_PATH=/data/.drakkar.cursor
+```
+
+### Option 2: Standalone Static Binary
+
+Download the compiled binary for your platform from GitHub Releases:
+
+#### Windows Standalone
+```powershell
+.\drakkar-windows-amd64.exe --secret "YOUR_SERVER_TOKEN" --log "C:\Valheim\server.log"
+```
+
+#### Linux Standalone (Ubuntu, Debian, AlmaLinux, Arch)
+```bash
+chmod +x ./drakkar-linux-amd64
+./drakkar-linux-amd64 --secret "YOUR_SERVER_TOKEN" --log "/opt/valheim/server.log"
+```
+
+---
+
+## 📜 Tier 2: Plaintext Script Shippers
+
+### Windows Host or Client (PowerShell)
 Works on dedicated Windows server hosts **or** locally on your gaming PC (for managed hosts like Valhost, DatHost, GPortal):
 
 ```powershell
-# Run the PowerShell shipper
 powershell -ExecutionPolicy Bypass -File .\valheim-shipper.ps1 -DashboardUrl "https://valheim-dash.vercel.app" -Secret "YOUR_SERVER_TOKEN"
 ```
 
-*Note: If running on your local PC while playing on a managed host, it automatically detects your `%USERPROFILE%\AppData\LocalLow\IronGate\Valheim\Player.log`!*
+*Note: If running on your gaming PC while connected to a hosted server, it automatically detects your `%USERPROFILE%\AppData\LocalLow\IronGate\Valheim\Player.log`!*
 
 ---
 
-### Option B: Linux VPS / Docker / systemd (Python 3)
+### Linux VPS / systemd (Python 3)
 Works on Ubuntu, Debian, Arch, AlmaLinux, or any container with standard Python 3.7+ (zero external pip packages needed):
 
 ```bash
