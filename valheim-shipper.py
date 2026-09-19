@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 # Regex signatures matching Valheim Dedicated Server log output
 RE_JOIN_CODE = re.compile(r'join code (\d+)|Join Code\s*[:=]?\s*(\d{5,8})', re.IGNORECASE)
-RE_VERSION = re.compile(r'Valheim version:\s*([0-9\.]+)|Console:\s*Valheim\s*([0-9\.]+)', re.IGNORECASE)
+RE_VERSION = re.compile(r'Valheim version:\s*(?:[a-zA-Z]-)?([0-9\.]+)|Console:\s*Valheim\s*(?:[a-zA-Z]-)?([0-9\.]+)', re.IGNORECASE)
 RE_DAY = re.compile(r'(?:day|Day)\s*[:=]?\s*(\d+)|time\s*[:=]?\s*[\d\.]+\s*,\s*day\s*[:=]?\s*(\d+)', re.IGNORECASE)
 RE_WORLD = re.compile(r'ZNet\.LoadWorld:\s*([^\s\(]+)|Get create world\s*([^\r\n]+)', re.IGNORECASE)
 RE_ACTIVE_PLAYERS = re.compile(r'is active with (\d+) player\(s\)', re.IGNORECASE)

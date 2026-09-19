@@ -40,6 +40,17 @@ func TestStateTracker_ProcessLine_VersionAndWorld(t *testing.T) {
 		t.Errorf("expected version '0.219.16', got '%s'", tracker.Server.Version)
 	}
 
+	// Test Linux l- prefix
+	tracker.ProcessLine("09/12/2026 10:00:00: Valheim version: l-0.219.16", now)
+	if tracker.Server.Version != "0.219.16" {
+		t.Errorf("expected version '0.219.16' with l- prefix, got '%s'", tracker.Server.Version)
+	}
+
+	tracker.ProcessLine("Console: Valheim l-1.0.0", now)
+	if tracker.Server.Version != "1.0.0" {
+		t.Errorf("expected version '1.0.0' with Console: Valheim l-, got '%s'", tracker.Server.Version)
+	}
+
 	tracker.ProcessLine("09/12/2026 10:00:01: ZNet.LoadWorld: Wowosi", now)
 	if tracker.Server.WorldName != "Wowosi" {
 		t.Errorf("expected world name 'Wowosi', got '%s'", tracker.Server.WorldName)
