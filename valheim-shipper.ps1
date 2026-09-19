@@ -108,7 +108,7 @@ while ($null -ne ($line = $reader.ReadLine())) {
   if ($line -match 'join code (\d+)' -or $line -match 'Join Code\s*[:=]?\s*(\d{5,8})') {
     $discoveredJoinCode = $matches[1]
   }
-  if ($line -match 'Valheim version:\s*([0-9\.]+)' -or $line -match 'Console:\s*Valheim\s*([0-9\.]+)') {
+  if ($line -match 'Valheim version:\s*(?:[a-zA-Z]-)?([0-9\.]+)' -or $line -match 'Console:\s*Valheim\s*(?:[a-zA-Z]-)?([0-9\.]+)') {
     $discoveredVersion = $matches[1]
   }
   if ($line -match '(?:day|Day)\s*[:=]?\s*(\d+)' -or $line -match 'time\s*[:=]?\s*[\d\.]+\s*,\s*day\s*[:=]?\s*(\d+)') {
@@ -240,7 +240,7 @@ try {
       }
 
       # Match Valheim Version
-      if ($line -match 'Valheim version:\s*([0-9\.]+)' -or $line -match 'Console:\s*Valheim\s*([0-9\.]+)') {
+      if ($line -match 'Valheim version:\s*(?:[a-zA-Z]-)?([0-9\.]+)' -or $line -match 'Console:\s*Valheim\s*(?:[a-zA-Z]-)?([0-9\.]+)') {
         $version = $matches[1]
         Write-Host "VALHEIM VERSION: v$version" -ForegroundColor Cyan
         Send-Telemetry @{

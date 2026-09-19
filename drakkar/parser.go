@@ -11,7 +11,7 @@ import (
 
 var (
 	reJoinCode     = regexp.MustCompile(`(?i)(?:join code (\d+)|Join Code\s*[:=]?\s*(\d{5,8}))`)
-	reVersion      = regexp.MustCompile(`(?i)(?:Valheim version:\s*([0-9\.]+)|Console:\s*Valheim\s*([0-9\.]+))`)
+	reVersion      = regexp.MustCompile(`(?i)(?:Valheim version:\s*(?:[a-zA-Z]-)?([0-9\.]+)|Console:\s*Valheim\s*(?:[a-zA-Z]-)?([0-9\.]+))`)
 	reDay          = regexp.MustCompile(`(?i)(?:day:(\d+)|Day (\d+)|time\s*[:=]?\s*[\d\.]+\s*,\s*day\s*[:=]?\s*(\d+))`)
 	reWorld        = regexp.MustCompile(`(?i)(?:ZNet\.LoadWorld:\s*([^\s\(]+)|Get create world\s*([^\r\n]+))`)
 	rePlayerLogin  = regexp.MustCompile(`(?i)Got character ZDOID from (.+?)\s*:\s*(-?\d+:\d+)`)
