@@ -158,3 +158,53 @@ func TestStateTracker_ProcessLine_SteamNegativeZDOID(t *testing.T) {
 	}
 }
 
+func TestStateTracker_ProcessLine_PlayerDeathAndRespawn(t *testing.T) {
+	tracker := NewStateTracker()
+	now := time.Now()
+
+	// 1. Player connects
+	loginLine := "09/19/2026 22:40:00: Got character ZDOID from Joe : 1248639817:1"
+	events := tracker.ProcessLine(loginLine, now)
+	if len(events) != 1 || events[0].Category != CategoryPlayer || events[0].Message != "Player 'Joe' connected to the server." {
+		t.Fatalf("expected login event, got %+v", events)
+	}
+
+	initialConn := tracker.ActivePlayers["Joe"].ConnectedAt
+
+	// 2. Player dies (ZDOID: 0:0)
+	deathLine := "09/19/2026 22:48:16: Got character ZDOID from Joe : 0:0"
+	events = tracker.ProcessLine(deathLine, now.Add(8*time.Minute))
+	if len(events) != 1 {
+		t.Fatalf("expected 1 combat event on death, got %d", len(events))
+	}
+	if events[0].Category != CategoryCombat || events[0].Level != LevelWarn {
+		t.Errorf("expected combat warn event, got category '%s', level '%s'", events[0].Category, events[0].Level)
+	}
+	if events[0].Message != "Player 'Joe' has fallen in battle." {
+		t.Errorf("expected 'Player 'Joe' has fallen in battle.', got '%s'", events[0].Message)
+	}
+	if !tracker.ActivePlayers["Joe"].IsOnline {
+		t.Errorf("player should remain online while waiting to respawn")
+	}
+	if tracker.ActivePlayers["Joe"].ConnectedAt != initialConn {
+		t.Errorf("session connectedAt should not be reset on death")
+	}
+
+	// 3. Player respawns 8s later
+	respawnLine := "09/19/2026 22:48:24: Got character ZDOID from Joe : 1248639817:3720"
+	events = tracker.ProcessLine(respawnLine, now.Add(8*time.Minute+8*time.Second))
+	if len(events) != 1 {
+		t.Fatalf("expected 1 respawn event, got %d", len(events))
+	}
+	if events[0].Message != "Player 'Joe' respawned." {
+		t.Errorf("expected respawn event message, got '%s'", events[0].Message)
+	}
+	if tracker.ActivePlayers["Joe"].CharacterZDOID != "1248639817:3720" {
+		t.Errorf("expected updated character ZDOID '1248639817:3720', got '%s'", tracker.ActivePlayers["Joe"].CharacterZDOID)
+	}
+	if tracker.ActivePlayers["Joe"].ConnectedAt != initialConn {
+		t.Errorf("session connectedAt should remain preserved after respawn")
+	}
+}
+
+

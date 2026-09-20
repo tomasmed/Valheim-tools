@@ -132,29 +132,73 @@ func (st *StateTracker) ProcessLine(line string, now time.Time) []ServerLogEvent
 		})
 	}
 
-	// 6. Check Player Login
+	// 6. Check Player Login / Death / Respawn
 	if match := rePlayerLogin.FindStringSubmatch(line); len(match) >= 3 {
 		pName := strings.TrimSpace(match[1])
 		zdoid := strings.TrimSpace(match[2])
-		
-		st.ActivePlayers[pName] = &PlayerSession{
-			ID:             fmt.Sprintf("p-%s", pName),
-			Name:           pName,
-			CharacterZDOID: zdoid,
-			ConnectedAt:    ts,
-			IsOnline:       true,
+
+		if zdoid == "0:0" {
+			// Combat Death Event
+			if existing, exists := st.ActivePlayers[pName]; exists {
+				existing.CharacterZDOID = "0:0"
+			} else {
+				st.ActivePlayers[pName] = &PlayerSession{
+					ID:             fmt.Sprintf("p-%s", pName),
+					Name:           pName,
+					CharacterZDOID: "0:0",
+					ConnectedAt:    ts,
+					IsOnline:       true,
+				}
+			}
+
+			events = append(events, ServerLogEvent{
+				ID:        fmt.Sprintf("ev-%d", now.UnixMilli()),
+				Timestamp: ts,
+				Category:  CategoryCombat,
+				Level:     LevelWarn,
+				Message:   fmt.Sprintf("Player '%s' has fallen in battle.", pName),
+				Raw:       line,
+			})
+		} else {
+			existing, exists := st.ActivePlayers[pName]
+			wasOnline := exists && existing.IsOnline && existing.CharacterZDOID != "0:0"
+			wasDead := exists && existing.CharacterZDOID == "0:0"
+
+			connTime := ts
+			if exists && (wasOnline || wasDead) && existing.ConnectedAt != "" {
+				connTime = existing.ConnectedAt
+			}
+
+			st.ActivePlayers[pName] = &PlayerSession{
+				ID:             fmt.Sprintf("p-%s", pName),
+				Name:           pName,
+				CharacterZDOID: zdoid,
+				ConnectedAt:    connTime,
+				IsOnline:       true,
+			}
+
+			st.updatePlayerCount()
+
+			if wasDead {
+				events = append(events, ServerLogEvent{
+					ID:        fmt.Sprintf("ev-%d", now.UnixMilli()),
+					Timestamp: ts,
+					Category:  CategoryPlayer,
+					Level:     LevelInfo,
+					Message:   fmt.Sprintf("Player '%s' respawned.", pName),
+					Raw:       line,
+				})
+			} else if !wasOnline {
+				events = append(events, ServerLogEvent{
+					ID:        fmt.Sprintf("ev-%d", now.UnixMilli()),
+					Timestamp: ts,
+					Category:  CategoryPlayer,
+					Level:     LevelInfo,
+					Message:   fmt.Sprintf("Player '%s' connected to the server.", pName),
+					Raw:       line,
+				})
+			}
 		}
-
-		st.updatePlayerCount()
-
-		events = append(events, ServerLogEvent{
-			ID:        fmt.Sprintf("ev-%d", now.UnixMilli()),
-			Timestamp: ts,
-			Category:  CategoryPlayer,
-			Level:     LevelInfo,
-			Message:   fmt.Sprintf("Player '%s' connected to the server.", pName),
-			Raw:       line,
-		})
 	}
 
 	// 7. Check Player Logout (by ZDOID)
