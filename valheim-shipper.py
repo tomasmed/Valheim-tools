@@ -219,13 +219,20 @@ def main():
             if m_login:
                 p_name = m_login.group(1).strip()
                 zdoid = m_login.group(2).strip()
-                active_players[p_name] = {
-                    "id": f"p-{p_name}",
-                    "name": p_name,
-                    "characterZdoId": zdoid,
-                    "connectedAt": iso_now(),
-                    "isOnline": True
-                }
+                if zdoid == "0:0":
+                    if p_name in active_players:
+                        active_players[p_name]["characterZdoId"] = "0:0"
+                else:
+                    if p_name in active_players and active_players[p_name].get("isOnline"):
+                        active_players[p_name]["characterZdoId"] = zdoid
+                    else:
+                        active_players[p_name] = {
+                            "id": f"p-{p_name}",
+                            "name": p_name,
+                            "characterZdoId": zdoid,
+                            "connectedAt": iso_now(),
+                            "isOnline": True
+                        }
 
             m_logout = RE_PLAYER_LOGOUT.search(line)
             if m_logout:
@@ -306,26 +313,69 @@ def main():
                 if m_login:
                     p_name = m_login.group(1).strip()
                     zdoid = m_login.group(2).strip()
-                    print(f"\n[WARRIOR ARRIVED] {p_name} ({zdoid})")
-                    active_players[p_name] = {
-                        "id": f"p-{p_name}",
-                        "name": p_name,
-                        "characterZdoId": zdoid,
-                        "connectedAt": iso_now(),
-                        "isOnline": True
-                    }
-                    online_count = sum(1 for p in active_players.values() if p.get("isOnline"))
-                    send_telemetry(args.url, args.secret, {
-                        "server": {"currentPlayers": online_count, "isOnline": True},
-                        "players": list(active_players.values()),
-                        "events": [{
-                            "id": f"ev-{int(time.time()*1000)}",
-                            "timestamp": iso_now(),
-                            "category": "player",
-                            "level": "info",
-                            "message": f"Player '{p_name}' connected to the server."
-                        }]
-                    })
+
+                    if zdoid == "0:0":
+                        print(f"\n[WARRIOR FALLEN] {p_name} has fallen in battle.")
+                        if p_name in active_players:
+                            active_players[p_name]["characterZdoId"] = "0:0"
+                        else:
+                            active_players[p_name] = {
+                                "id": f"p-{p_name}",
+                                "name": p_name,
+                                "characterZdoId": "0:0",
+                                "connectedAt": iso_now(),
+                                "isOnline": True
+                            }
+                        send_telemetry(args.url, args.secret, {
+                            "players": list(active_players.values()),
+                            "events": [{
+                                "id": f"ev-{int(time.time()*1000)}",
+                                "timestamp": iso_now(),
+                                "category": "combat",
+                                "level": "warn",
+                                "message": f"Player '{p_name}' has fallen in battle."
+                            }]
+                        })
+                    else:
+                        was_online = p_name in active_players and active_players[p_name].get("isOnline") and active_players[p_name].get("characterZdoId") != "0:0"
+                        was_dead = p_name in active_players and active_players[p_name].get("characterZdoId") == "0:0"
+
+                        prev_connected = active_players[p_name].get("connectedAt") if (p_name in active_players and (was_online or was_dead)) else iso_now()
+                        active_players[p_name] = {
+                            "id": f"p-{p_name}",
+                            "name": p_name,
+                            "characterZdoId": zdoid,
+                            "connectedAt": prev_connected,
+                            "isOnline": True
+                        }
+                        online_count = sum(1 for p in active_players.values() if p.get("isOnline"))
+
+                        if was_dead:
+                            print(f"\n[WARRIOR RESPAWNED] {p_name} ({zdoid})")
+                            send_telemetry(args.url, args.secret, {
+                                "server": {"currentPlayers": online_count, "isOnline": True},
+                                "players": list(active_players.values()),
+                                "events": [{
+                                    "id": f"ev-{int(time.time()*1000)}",
+                                    "timestamp": iso_now(),
+                                    "category": "player",
+                                    "level": "info",
+                                    "message": f"Player '{p_name}' respawned."
+                                }]
+                            })
+                        elif not was_online:
+                            print(f"\n[WARRIOR ARRIVED] {p_name} ({zdoid})")
+                            send_telemetry(args.url, args.secret, {
+                                "server": {"currentPlayers": online_count, "isOnline": True},
+                                "players": list(active_players.values()),
+                                "events": [{
+                                    "id": f"ev-{int(time.time()*1000)}",
+                                    "timestamp": iso_now(),
+                                    "category": "player",
+                                    "level": "info",
+                                    "message": f"Player '{p_name}' connected to the server."
+                                }]
+                            })
 
                 m_logout = RE_PLAYER_LOGOUT.search(line)
                 if m_logout:

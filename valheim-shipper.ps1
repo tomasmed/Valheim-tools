@@ -126,19 +126,29 @@ while ($null -ne ($line = $reader.ReadLine())) {
     $discoveredWorld = $matches[1].Trim()
   }
 
-  # Character Login
+  # Character Login / Death / Respawn
   if ($line -match 'Got character ZDOID from (.+?)\s*:\s*(-?\d+:\d+)') {
     $playerName = $matches[1].Trim()
     $zdoid = $matches[2].Trim()
     $timeMatch = $line -match '^(\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2})'
     $connTime = if ($timeMatch) { (Get-Date $matches[1]).ToString("o") } else { (Get-Date).ToString("o") }
 
-    $activePlayers[$playerName] = @{
-      id = "p-$playerName"
-      name = $playerName
-      characterZdoId = $zdoid
-      connectedAt = $connTime
-      isOnline = $true
+    if ($zdoid -eq '0:0') {
+      if ($activePlayers.ContainsKey($playerName)) {
+        $activePlayers[$playerName].characterZdoId = '0:0'
+      }
+    } else {
+      if ($activePlayers.ContainsKey($playerName) -and $activePlayers[$playerName].isOnline) {
+        $activePlayers[$playerName].characterZdoId = $zdoid
+      } else {
+        $activePlayers[$playerName] = @{
+          id = "p-$playerName"
+          name = $playerName
+          characterZdoId = $zdoid
+          connectedAt = $connTime
+          isOnline = $true
+        }
+      }
     }
   }
 
@@ -267,29 +277,74 @@ try {
         }
       }
 
-      # Match Player Entered
+      # Match Player Entered / Death / Respawn
       if ($line -match 'Got character ZDOID from (.+?)\s*:\s*(-?\d+:\d+)') {
         $playerName = $matches[1].Trim()
         $zdoid = $matches[2].Trim()
-        Write-Host "WARRIOR ARRIVED: $playerName (ZDOID: $zdoid)" -ForegroundColor Green
-        
-        $activePlayers[$playerName] = @{
-          id = "p-$playerName"
-          name = $playerName
-          characterZdoId = $zdoid
-          connectedAt = (Get-Date).ToString("o")
-          isOnline = $true
-        }
 
-        Send-Telemetry @{
-          players = @($activePlayers.Values)
-          events = @(@{
-            id = [guid]::NewGuid().ToString()
-            timestamp = (Get-Date).ToString("o")
-            category = "player"
-            level = "info"
-            message = "Player '$playerName' connected to the server."
-          })
+        if ($zdoid -eq '0:0') {
+          Write-Host "WARRIOR FALLEN: $playerName has fallen in battle." -ForegroundColor Red
+          if ($activePlayers.ContainsKey($playerName)) {
+            $activePlayers[$playerName].characterZdoId = '0:0'
+          } else {
+            $activePlayers[$playerName] = @{
+              id = "p-$playerName"
+              name = $playerName
+              characterZdoId = '0:0'
+              connectedAt = (Get-Date).ToString("o")
+              isOnline = $true
+            }
+          }
+
+          Send-Telemetry @{
+            players = @($activePlayers.Values)
+            events = @(@{
+              id = [guid]::NewGuid().ToString()
+              timestamp = (Get-Date).ToString("o")
+              category = "combat"
+              level = "warn"
+              message = "Player '$playerName' has fallen in battle."
+            })
+          }
+        } else {
+          $wasOnline = $activePlayers.ContainsKey($playerName) -and $activePlayers[$playerName].isOnline -and $activePlayers[$playerName].characterZdoId -ne '0:0'
+          $wasDead = $activePlayers.ContainsKey($playerName) -and $activePlayers[$playerName].characterZdoId -eq '0:0'
+
+          $prevConn = if ($activePlayers.ContainsKey($playerName) -and ($wasOnline -or $wasDead)) { $activePlayers[$playerName].connectedAt } else { (Get-Date).ToString("o") }
+
+          $activePlayers[$playerName] = @{
+            id = "p-$playerName"
+            name = $playerName
+            characterZdoId = $zdoid
+            connectedAt = $prevConn
+            isOnline = $true
+          }
+
+          if ($wasDead) {
+            Write-Host "WARRIOR RESPAWNED: $playerName (ZDOID: $zdoid)" -ForegroundColor Cyan
+            Send-Telemetry @{
+              players = @($activePlayers.Values)
+              events = @(@{
+                id = [guid]::NewGuid().ToString()
+                timestamp = (Get-Date).ToString("o")
+                category = "player"
+                level = "info"
+                message = "Player '$playerName' respawned."
+              })
+            }
+          } elseif (-not $wasOnline) {
+            Write-Host "WARRIOR ARRIVED: $playerName (ZDOID: $zdoid)" -ForegroundColor Green
+            Send-Telemetry @{
+              players = @($activePlayers.Values)
+              events = @(@{
+                id = [guid]::NewGuid().ToString()
+                timestamp = (Get-Date).ToString("o")
+                category = "player"
+                level = "info"
+                message = "Player '$playerName' connected to the server."
+              })
+            }
+          }
         }
       }
 
