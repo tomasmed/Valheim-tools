@@ -16,6 +16,8 @@ type Config struct {
 	BatchTimeSec   int
 	CursorPath     string
 	PollIntervalMs int
+	ShowVersion    bool
+	CheckUpdate    bool
 }
 
 // LoadConfig parses flags, checks environment variables, and resolves defaults
@@ -36,6 +38,9 @@ func LoadConfig() Config {
 
 	defaultPollInterval := getEnvInt("DRAKKAR_POLL_INTERVAL_MS", 500)
 	flag.IntVar(&cfg.PollIntervalMs, "poll-interval", defaultPollInterval, "Log poll interval in milliseconds")
+
+	flag.BoolVar(&cfg.ShowVersion, "version", false, "Print Drakkar version and exit")
+	flag.BoolVar(&cfg.CheckUpdate, "check-update", false, "Check for newer releases of Drakkar on GitHub and exit")
 
 	flag.Parse()
 
