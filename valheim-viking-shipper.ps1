@@ -4,12 +4,24 @@
 
 param(
   [string]$DashboardUrl = "https://valheim-dash.vercel.app",
-  [string]$CharacterName = ""
+  [string]$CharacterName = "",
+  [string]$RealmSlug = ""
 )
+
+if (-not $RealmSlug) {
+  if ($env:VALHEIM_REALM_SLUG) {
+    $RealmSlug = $env:VALHEIM_REALM_SLUG
+  } elseif ($env:DRAKKAR_REALM_SLUG) {
+    $RealmSlug = $env:DRAKKAR_REALM_SLUG
+  } else {
+    $RealmSlug = "pumak-2hh1"
+  }
+}
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  Valheim Mead Hall - Viking Hero Armory Sync" -ForegroundColor Yellow
 Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host "Target Realm:    $RealmSlug" -ForegroundColor Gray
 Write-Host "Target Endpoint: $DashboardUrl/api/armory/sync" -ForegroundColor Gray
 Write-Host ""
 
@@ -99,7 +111,7 @@ try {
 
 Write-Host "Syncing Viking to the Mead Hall..." -ForegroundColor Yellow
 
-$targetEndpoint = "$($DashboardUrl.TrimEnd('/'))/api/armory/sync?name=$([Uri]::EscapeDataString($targetFile.BaseName))"
+$targetEndpoint = "$($DashboardUrl.TrimEnd('/'))/api/armory/sync?name=$([Uri]::EscapeDataString($targetFile.BaseName))&slug=$([Uri]::EscapeDataString($RealmSlug))"
 try {
   $response = Invoke-RestMethod -Uri $targetEndpoint -Method Post -Body $fileBytes -ContentType "application/octet-stream" -TimeoutSec 10
   

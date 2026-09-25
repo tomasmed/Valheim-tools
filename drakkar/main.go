@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -19,7 +21,36 @@ const version = "1.0.0"
 func main() {
 	cfg := LoadConfig()
 
+	if cfg.ShowVersion {
+		fmt.Printf("Drakkar Universal Log Shipper v%s\n", version)
+		os.Exit(0)
+	}
+
+	if cfg.CheckUpdate {
+		fmt.Printf("Checking for updates (current version: v%s)...\n", version)
+		latest, err := queryLatestRelease()
+		if err != nil {
+			fmt.Printf("Update check failed: %v\n", err)
+			os.Exit(1)
+		}
+		if latest != "" && isNewerVersion(version, latest) {
+			fmt.Printf("A newer version of Drakkar is available: v%s (current: v%s)\n", latest, version)
+			fmt.Println("Download latest release at: https://github.com/tomasmed/Valheim-tools/releases")
+		} else {
+			fmt.Printf("Drakkar is up to date (v%s).\n", version)
+		}
+		os.Exit(0)
+	}
+
 	printBanner(cfg)
+
+	// Non-blocking background check for newer releases
+	go func() {
+		latest, err := queryLatestRelease()
+		if err == nil && latest != "" && isNewerVersion(version, latest) {
+			log.Printf("[Drakkar] 🔔 Notice: A newer version of Drakkar (v%s) is available at https://github.com/tomasmed/Valheim-tools/releases", latest)
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -129,3 +160,52 @@ func performCatchUp(cfg Config, tracker *StateTracker, client *HTTPClient) {
 		_ = os.WriteFile(cfg.CursorPath, []byte(fmt.Sprintf("%d", totalBytes)), 0644)
 	}
 }
+
+type githubRelease struct {
+	TagName string `json:"tag_name"`
+}
+
+func queryLatestRelease() (string, error) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/tomasmed/Valheim-tools/releases/latest", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Drakkar-Shipper/"+version)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	var rel githubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(rel.TagName, "v"), nil
+}
+
+func isNewerVersion(current, latest string) bool {
+	cParts := strings.Split(strings.TrimPrefix(current, "v"), ".")
+	lParts := strings.Split(strings.TrimPrefix(latest, "v"), ".")
+	for i := 0; i < len(cParts) && i < len(lParts); i++ {
+		cNum, _ := strconv.Atoi(cParts[i])
+		lNum, _ := strconv.Atoi(lParts[i])
+		if lNum > cNum {
+			return true
+		}
+		if lNum < cNum {
+			return false
+		}
+	}
+	return len(lParts) > len(cParts)
+}
+

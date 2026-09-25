@@ -6,7 +6,7 @@ echo ==========================================================
 echo Searching for your local Viking character save...
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0valheim-viking-shipper.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0valheim-viking-shipper.ps1" %*
 
 echo.
 pause
