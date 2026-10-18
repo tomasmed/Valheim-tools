@@ -14,15 +14,18 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/term"
 )
 
-const version = "1.0.0"
+const version = "1.1.0"
 
 func main() {
 	cfg := LoadConfig()
 
 	if cfg.ShowVersion {
-		fmt.Printf("Drakkar Universal Log Shipper v%s\n", version)
+		fmt.Printf("Drakkar Universal Log Shipper & Helmsman v%s\n", version)
 		os.Exit(0)
 	}
 
@@ -42,7 +45,10 @@ func main() {
 		os.Exit(0)
 	}
 
-	printBanner(cfg)
+	// Prevent duplicate background process if wrapped bat script still has a legacy 'start drakkar.exe' call
+	if os.Getenv("DRAKKAR_SUPERVISED") == "1" && cfg.WrapPath == "" {
+		os.Exit(0)
+	}
 
 	// Non-blocking background check for newer releases
 	go func() {
@@ -51,27 +57,70 @@ func main() {
 			log.Printf("[Drakkar] 🔔 Notice: A newer version of Drakkar (v%s) is available at https://github.com/tomasmed/Valheim-tools/releases", latest)
 		}
 	}()
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	isInteractive := !cfg.NoTUI && term.IsTerminal(int(os.Stdout.Fd()))
 
 	tracker := NewStateTracker()
 	client := NewHTTPClient(cfg.DashboardURL, cfg.Secret)
 
-	// Catch-up phase if cursor file is empty or missing
-	performCatchUp(cfg, tracker, client)
-
 	linesCh := make(chan string, 200)
+
+	if cfg.Demo {
+		initDemoState(tracker, linesCh, ctx)
+	} else {
+		// Catch-up phase if cursor file is empty or missing
+		performCatchUp(cfg, tracker, client)
+	}
+
 	batcher := NewBatcher(client, tracker, cfg.BatchSize, cfg.BatchTimeSec)
 	tailer := NewTailer(cfg.LogPath, cfg.CursorPath, cfg.PollIntervalMs)
+	supervisor := NewSupervisor(cfg.WrapPath, linesCh)
+
+	// Start supervisor if executable is specified
+	if supervisor.IsManaged() {
+		go func() {
+			if err := supervisor.Start(ctx); err != nil {
+				log.Printf("[Drakkar Supervisor] Error starting server process: %v", err)
+			}
+		}()
+		// Ensure child process terminates when Drakkar terminates
+		defer func() {
+			_ = supervisor.Stop()
+		}()
+	}
 
 	// Run batcher in goroutine
 	go batcher.Run(ctx, linesCh)
 
-	// Start tailer (blocks until context cancellation or error)
-	log.Printf("[Drakkar] Initialized live streaming daemon. Monitoring for updates...")
-	if err := tailer.Start(ctx, linesCh); err != nil {
-		log.Printf("[Drakkar] Tailer stopped with error: %v", err)
+	// Run tailer in goroutine
+	go func() {
+		if err := tailer.Start(ctx, linesCh); err != nil {
+			log.Printf("[Drakkar] Tailer stopped with error: %v", err)
+		}
+	}()
+
+	if isInteractive {
+		// In interactive TUI mode, route logs away from stdout to avoid corrupting alt screen
+		log.SetOutput(io.Discard)
+
+		tuiModel := NewTUIModel(ctx, stop, cfg, tracker, batcher, supervisor)
+		tuiProg := tea.NewProgram(tuiModel, tea.WithAltScreen())
+
+		batcher.SetEventCallback(func(ev ServerLogEvent) {
+			tuiProg.Send(eventMsg(ev))
+		})
+
+		if _, err := tuiProg.Run(); err != nil {
+			fmt.Printf("Error running Drakkar TUI: %v\n", err)
+		}
+	} else {
+		// Headless mode (Docker, systemd, or --no-tui)
+		printBanner(cfg)
+		log.Printf("[Drakkar] Running in headless mode. Monitoring logs...")
+		<-ctx.Done()
+		log.Printf("[Drakkar] Shutdown signal received.")
 	}
 
 	close(linesCh)
@@ -85,6 +134,9 @@ func printBanner(cfg Config) {
 	fmt.Println("==========================================================")
 	fmt.Printf("Dashboard:    %s/api/telemetry\n", strings.TrimRight(cfg.DashboardURL, "/"))
 	fmt.Printf("Log Target:   %s\n", cfg.LogPath)
+	if cfg.WrapPath != "" {
+		fmt.Printf("Supervising:  %s\n", cfg.WrapPath)
+	}
 	if cfg.Secret != "" {
 		masked := cfg.Secret
 		if len(masked) > 8 {
@@ -110,14 +162,12 @@ func performCatchUp(cfg Config, tracker *StateTracker, client *HTTPClient) {
 		}
 	}
 
-	// Check if log file exists
 	file, err := os.Open(cfg.LogPath)
 	if err != nil {
 		return
 	}
 	defer file.Close()
 
-	log.Printf("[Drakkar] Scanning %s to initialize server state...", cfg.LogPath)
 	reader := bufio.NewReader(file)
 	var totalBytes int64
 
@@ -135,27 +185,18 @@ func performCatchUp(cfg Config, tracker *StateTracker, client *HTTPClient) {
 			if err == io.EOF {
 				break
 			}
-			log.Printf("[Drakkar] Catch-up read error: %v", err)
 			break
 		}
 	}
 
 	server, players := tracker.GetSnapshot()
-	log.Printf("[Drakkar] State restored (%d bytes scanned). JoinCode: '%s', World: '%s', Version: '%s', Players: %d",
-		totalBytes, server.JoinCode, server.WorldName, server.Version, len(players))
 
-	// Send initial snapshot to Mead Hall
 	payload := TelemetryPayload{
 		Server:  &server,
 		Players: players,
 	}
-	if err := client.SendTelemetry(context.Background(), payload); err != nil {
-		log.Printf("[Drakkar] Initial telemetry sync failed: %v", err)
-	} else {
-		log.Printf("[Drakkar] Initial state synced with Mead Hall.")
-	}
+	_ = client.SendTelemetry(context.Background(), payload)
 
-	// If no previous cursor existed, save the new cursor
 	if savedCursor <= 0 {
 		_ = os.WriteFile(cfg.CursorPath, []byte(fmt.Sprintf("%d", totalBytes)), 0644)
 	}
@@ -209,3 +250,63 @@ func isNewerVersion(current, latest string) bool {
 	return len(lParts) > len(cParts)
 }
 
+func initDemoState(tracker *StateTracker, linesCh chan string, ctx context.Context) {
+	online := true
+	day := 142
+	two := 2
+	tracker.mu.Lock()
+	tracker.Server = ServerStatus{
+		IsOnline:       &online,
+		JoinCode:       "748192",
+		WorldName:      "Wowosi",
+		Version:        "0.218.15",
+		DayCount:       &day,
+		CurrentPlayers: &two,
+	}
+	tracker.ActivePlayers["Ragnar Lodbrok"] = &PlayerSession{
+		ID:             "p-1",
+		Name:           "Ragnar Lodbrok",
+		ConnectedAt:    time.Now().Add(-42 * time.Minute).Format(time.RFC3339),
+		CharacterZDOID: "10482:1",
+		IsOnline:       true,
+	}
+	tracker.ActivePlayers["Lagertha"] = &PlayerSession{
+		ID:             "p-2",
+		Name:           "Lagertha",
+		ConnectedAt:    time.Now().Add(-18 * time.Minute).Format(time.RFC3339),
+		CharacterZDOID: "10485:2",
+		IsOnline:       true,
+	}
+	tracker.mu.Unlock()
+
+	// Feed mock events periodically
+	go func() {
+		demoLines := []string{
+			"World saved ( 128.4ms )",
+			"Got character ZDOID from Bjorn Ironside : 10499:3",
+			"Day 143",
+			"World saved ( 112.1ms )",
+			"Got character ZDOID from Freydis : 10512:4",
+			"Destroying abandoned non persistent zdo 10485:2",
+			"World saved ( 145.8ms )",
+		}
+		idx := 0
+		ticker := time.NewTicker(4 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if idx < len(demoLines) {
+					select {
+					case linesCh <- demoLines[idx]:
+						idx++
+					default:
+					}
+				}
+			}
+		}
+	}()
+}

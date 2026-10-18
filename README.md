@@ -20,15 +20,37 @@ These shippers non-destructively monitor your server's log file in real time and
 
 ---
 
-## 🛶 Tier 1: Drakkar Universal Shipper (Recommended)
+## 🛶 Tier 1: Drakkar Universal Helmsman & Shipper (Recommended)
 
-**Drakkar** is the next-generation compiled Go daemon and turnkey Docker sidecar:
+**Drakkar** is the next-generation compiled Go supervisor, interactive TUI, and turnkey Docker sidecar:
+- **Interactive Terminal UI (TUI)**: Beautiful Norse-themed TUI built with **Charmbracelet's Bubble Tea & Lip Gloss** displaying live server status, Join Code, active warriors, and event feed.
+- **Server Process Supervisor**: Wraps and manages your server launcher (`.bat`, `.sh`, or executable), tracking PID, uptime, and providing in-terminal restart/stop controls.
+- **1-Click Clipboard Join Code**: Press `[c]` in the TUI to instantly copy the PlayFab Crossplay code to your OS clipboard.
 - **Zero Host Dependencies**: Single static binary without Python or runtime requirements.
 - **Ultra-Lightweight**: Operates under **<15 MB RAM** and **<0.2% CPU**.
 - **Debounced Batching**: Flushes batches every **25 lines** OR **3 seconds** to prevent HTTP request storms.
 - **Rotation Resilience**: Detects file truncation or server restarts and resets cursor offsets cleanly.
+- **Smart Headless Fallback**: Automatically switches between interactive TUI and silent daemon mode based on TTY presence or `--no-tui` / `--headless` flags.
 
-### Option 1: Docker Sidecar (Unraid, TrueNAS, VPS)
+### Option 1: Supervised Launcher with Interactive TUI (Recommended for Hosts)
+
+Have Drakkar supervise your dedicated server launcher while streaming telemetry and hosting the TUI:
+
+#### Windows (wrapping your server script)
+```powershell
+.\drakkar-windows-amd64.exe --wrap "C:\Program Files (x86)\Steam\steamapps\common\Valheim dedicated server\start_wowosi.bat" --secret "YOUR_SERVER_TOKEN"
+```
+
+#### TUI Keyboard Shortcuts:
+- `[c]` — Copy PlayFab Join Code to clipboard
+- `[f]` — Force immediate telemetry batch flush
+- `[r]` — Restart supervised Valheim server process
+- `[s]` — Stop supervised Valheim server process
+- `[q]` — Dock ship & quit cleanly
+
+---
+
+### Option 2: Docker Sidecar (Unraid, TrueNAS, VPS)
 
 Mount your Valheim server's log folder read-only into the Drakkar container:
 
@@ -48,7 +70,9 @@ services:
       - DRAKKAR_CURSOR_PATH=/data/.drakkar.cursor
 ```
 
-### Option 2: Standalone Static Binary
+---
+
+### Option 3: Passive Standalone Binary (Tailing Existing Logs)
 
 Download the compiled binary for your platform from GitHub Releases:
 
