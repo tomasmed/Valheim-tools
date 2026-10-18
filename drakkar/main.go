@@ -57,7 +57,6 @@ func main() {
 			log.Printf("[Drakkar] 🔔 Notice: A newer version of Drakkar (v%s) is available at https://github.com/tomasmed/Valheim-tools/releases", latest)
 		}
 	}()
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -311,3 +310,7 @@ func initDemoState(tracker *StateTracker, linesCh chan string, ctx context.Conte
 		}
 	}()
 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> 8f8f99f (feat(drakkar): add demo simulation mode and recursion guard)
