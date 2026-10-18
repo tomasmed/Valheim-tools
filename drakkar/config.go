@@ -16,6 +16,9 @@ type Config struct {
 	BatchTimeSec   int
 	CursorPath     string
 	PollIntervalMs int
+	WrapPath       string
+	NoTUI          bool
+	Demo           bool
 	ShowVersion    bool
 	CheckUpdate    bool
 }
@@ -38,6 +41,14 @@ func LoadConfig() Config {
 
 	defaultPollInterval := getEnvInt("DRAKKAR_POLL_INTERVAL_MS", 500)
 	flag.IntVar(&cfg.PollIntervalMs, "poll-interval", defaultPollInterval, "Log poll interval in milliseconds")
+
+	flag.StringVar(&cfg.WrapPath, "wrap", getEnvMulti([]string{"DRAKKAR_WRAP_PATH", "DRAKKAR_EXEC_PATH"}, ""), "Path to server executable or script to supervise (e.g. start_wowosi.bat)")
+	flag.StringVar(&cfg.WrapPath, "exec", getEnvMulti([]string{"DRAKKAR_WRAP_PATH", "DRAKKAR_EXEC_PATH"}, ""), "Alias for -wrap")
+
+	flag.BoolVar(&cfg.NoTUI, "no-tui", getEnvBool("DRAKKAR_NO_TUI", false), "Disable interactive TUI and run as headless logger")
+	flag.BoolVar(&cfg.NoTUI, "headless", getEnvBool("DRAKKAR_HEADLESS", false), "Alias for -no-tui")
+
+	flag.BoolVar(&cfg.Demo, "demo", false, "Run in demo simulation mode with mock telemetry")
 
 	flag.BoolVar(&cfg.ShowVersion, "version", false, "Print Drakkar version and exit")
 	flag.BoolVar(&cfg.CheckUpdate, "check-update", false, "Check for newer releases of Drakkar on GitHub and exit")
@@ -71,6 +82,16 @@ func getEnvInt(key string, defaultVal int) int {
 	if val, ok := os.LookupEnv(key); ok && val != "" {
 		if i, err := strconv.Atoi(val); err == nil {
 			return i
+		}
+	}
+	return defaultVal
+}
+
+func getEnvBool(key string, defaultVal bool) bool {
+	if val, ok := os.LookupEnv(key); ok && val != "" {
+		b, err := strconv.ParseBool(val)
+		if err == nil {
+			return b
 		}
 	}
 	return defaultVal
