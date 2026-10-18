@@ -240,8 +240,9 @@ func (m *TUIModel) View() string {
 	var procState ProcessState = ProcessUnmanaged
 	var procPid int
 	var procUptime string = "00h 00m 00s"
+	var procAttached bool
 	if m.supervisor != nil {
-		procState, procPid, procUptime, _ = m.supervisor.GetInfo()
+		procState, procPid, procUptime, _, procAttached = m.supervisor.GetInfo()
 	}
 
 	worldDisplay := "Unknown"
@@ -259,7 +260,7 @@ func (m *TUIModel) View() string {
 			styleJoinCodeLabel.Render("VALHEIM REALM & PROCESS"),
 			fmt.Sprintf("%s %s", styleLabel.Render("World:"), styleValue.Render(worldDisplay)),
 			fmt.Sprintf("%s %s", styleLabel.Render("Timeline:"), styleRune.Render(dayDisplay)),
-			fmt.Sprintf("%s %s", styleLabel.Render("Process:"), formatProcessStatus(procState, procPid)),
+			fmt.Sprintf("%s %s", styleLabel.Render("Process:"), formatProcessStatus(procState, procPid, procAttached)),
 			fmt.Sprintf("%s %s", styleLabel.Render("Uptime:"), styleValue.Render(procUptime)),
 		),
 	)
@@ -322,7 +323,10 @@ func (m *TUIModel) View() string {
 	)
 }
 
-func formatProcessStatus(state ProcessState, pid int) string {
+func formatProcessStatus(state ProcessState, pid int, attached bool) string {
+	if attached && pid > 0 {
+		return styleCategoryPlayer.Render(fmt.Sprintf("● RUNNING (PID %d • ATTACHED)", pid))
+	}
 	switch state {
 	case ProcessRunning:
 		return styleCategoryPlayer.Render(fmt.Sprintf("● RUNNING (PID %d)", pid))

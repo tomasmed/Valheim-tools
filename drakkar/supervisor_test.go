@@ -15,15 +15,22 @@ func TestSupervisor_Unmanaged(t *testing.T) {
 		t.Errorf("expected supervisor to be unmanaged")
 	}
 
-	state, pid, uptime, path := sup.GetInfo()
-	if state != ProcessUnmanaged {
-		t.Errorf("expected state UNMANAGED, got %v", state)
+	state, pid, uptime, path, attached := sup.GetInfo()
+	if attached {
+		if state != ProcessRunning || pid <= 0 {
+			t.Errorf("expected attached process to be running with pid, got %v (pid %d)", state, pid)
+		}
+	} else {
+		if state != ProcessUnmanaged {
+			t.Errorf("expected state UNMANAGED, got %v", state)
+		}
+		if pid != 0 {
+			t.Errorf("expected pid 0, got %d", pid)
+		}
 	}
-	if pid != 0 {
-		t.Errorf("expected pid 0, got %d", pid)
-	}
-	if uptime != "00h 00m 00s" {
-		t.Errorf("expected default uptime, got %s", uptime)
+
+	if uptime == "" {
+		t.Errorf("expected non-empty uptime string")
 	}
 	if path != "" {
 		t.Errorf("expected empty path, got %s", path)
@@ -70,9 +77,12 @@ func TestSupervisor_ManagedExecution(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	state, pid, uptime, path := sup.GetInfo()
+	state, pid, uptime, path, attached := sup.GetInfo()
 	if state != ProcessRunning {
 		t.Errorf("expected state RUNNING, got %v", state)
+	}
+	if attached {
+		t.Errorf("expected managed supervisor not to be attached")
 	}
 	if pid <= 0 {
 		t.Errorf("expected valid PID > 0, got %d", pid)

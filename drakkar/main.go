@@ -310,7 +310,3 @@ func initDemoState(tracker *StateTracker, linesCh chan string, ctx context.Conte
 		}
 	}()
 }
-<<<<<<< HEAD
-=======
-
->>>>>>> 8f8f99f (feat(drakkar): add demo simulation mode and recursion guard)

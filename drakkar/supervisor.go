@@ -37,6 +37,7 @@ type Supervisor struct {
 	state       ProcessState
 	startTime   time.Time
 	pid         int
+	attached    bool
 	exitErr     error
 	outputLines []string
 	maxLines    int
@@ -46,16 +47,61 @@ type Supervisor struct {
 // NewSupervisor initializes a supervisor for the given executable path
 func NewSupervisor(execPath string, logCh chan<- string) *Supervisor {
 	state := ProcessUnmanaged
+	attached := false
+	pid := 0
+	var startTime time.Time
+
 	if execPath != "" {
 		state = ProcessStopped
+	} else {
+		// Attempt to auto-detect already running valheim_server
+		if runningPid := findRunningServerPid(); runningPid > 0 {
+			state = ProcessRunning
+			pid = runningPid
+			attached = true
+			startTime = time.Now()
+		}
 	}
+
 	return &Supervisor{
 		execPath:    execPath,
 		state:       state,
+		pid:         pid,
+		attached:    attached,
+		startTime:   startTime,
 		maxLines:    500,
 		outputLines: make([]string, 0, 500),
 		logCh:       logCh,
 	}
+}
+
+func findRunningServerPid() int {
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq valheim_server.exe", "/FO", "CSV", "/NH").Output()
+		if err == nil {
+			line := strings.TrimSpace(string(out))
+			if strings.Contains(line, "valheim_server") {
+				parts := strings.Split(line, ",")
+				if len(parts) >= 2 {
+					pidStr := strings.Trim(parts[1], "\" ")
+					if p, err := strconv.Atoi(pidStr); err == nil && p > 0 {
+						return p
+					}
+				}
+			}
+		}
+	} else {
+		out, err := exec.Command("pgrep", "-f", "valheim_server").Output()
+		if err == nil {
+			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+			if len(lines) > 0 {
+				if p, err := strconv.Atoi(lines[0]); err == nil && p > 0 {
+					return p
+				}
+			}
+		}
+	}
+	return 0
 }
 
 // IsManaged returns true if an executable was configured for Drakkar to manage
@@ -65,11 +111,17 @@ func (s *Supervisor) IsManaged() bool {
 	return s.execPath != ""
 }
 
+// IsAttached returns true if connected to an existing running process
+func (s *Supervisor) IsAttached() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.attached
+}
+
 // Start launches the supervised server executable
 func (s *Supervisor) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.execPath == "" {
-		s.state = ProcessUnmanaged
 		s.mu.Unlock()
 		return nil
 	}
@@ -82,6 +134,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 
 	workDir := filepath.Dir(absPath)
 	s.state = ProcessStarting
+	s.attached = false
 	s.mu.Unlock()
 
 	var cmd *exec.Cmd
@@ -169,9 +222,16 @@ func (s *Supervisor) pipeReader(r io.Reader) {
 	}
 }
 
-// Stop cleanly terminates the supervised server process
+// Stop cleanly terminates the supervised server process (or detaches if unmanaged)
 func (s *Supervisor) Stop() error {
 	s.mu.Lock()
+	if s.attached {
+		// Do not kill externally running server when simply docking Drakkar!
+		s.mu.Unlock()
+		log.Printf("[Drakkar Supervisor] Detached from running server process (PID %d)", s.pid)
+		return nil
+	}
+
 	if s.cmd == nil || s.cmd.Process == nil || s.state != ProcessRunning {
 		s.mu.Unlock()
 		return nil
@@ -195,6 +255,10 @@ func (s *Supervisor) Stop() error {
 // Restart cleanly stops and relaunches the supervised server process
 func (s *Supervisor) Restart(ctx context.Context) error {
 	s.mu.Lock()
+	if s.attached {
+		s.mu.Unlock()
+		return fmt.Errorf("cannot restart unmanaged attached process")
+	}
 	s.state = ProcessRestart
 	s.mu.Unlock()
 
@@ -205,13 +269,14 @@ func (s *Supervisor) Restart(ctx context.Context) error {
 }
 
 // GetInfo returns current status snapshot of the process
-func (s *Supervisor) GetInfo() (state ProcessState, pid int, uptime string, path string) {
+func (s *Supervisor) GetInfo() (state ProcessState, pid int, uptime string, path string, attached bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	state = s.state
 	pid = s.pid
 	path = s.execPath
+	attached = s.attached
 
 	if s.state == ProcessRunning && !s.startTime.IsZero() {
 		dur := time.Since(s.startTime).Truncate(time.Second)
