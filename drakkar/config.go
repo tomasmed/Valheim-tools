@@ -27,7 +27,12 @@ type Config struct {
 func LoadConfig() Config {
 	var cfg Config
 
-	flag.StringVar(&cfg.DashboardURL, "url", getEnv("DRAKKAR_DASHBOARD_URL", "https://valheim-dash.vercel.app"), "Target Valheim Mead Hall dashboard URL")
+	var standalone bool
+	flag.BoolVar(&standalone, "standalone", false, "Run in standalone local monitor mode (no telemetry sync)")
+	flag.BoolVar(&standalone, "offline", false, "Alias for -standalone")
+
+	defaultURL := getEnv("DRAKKAR_DASHBOARD_URL", "")
+	flag.StringVar(&cfg.DashboardURL, "url", defaultURL, "Target Valheim Mead Hall dashboard URL (defaults to http://localhost:3000, or https://valheim-dash.vercel.app if -secret is provided)")
 	flag.StringVar(&cfg.Secret, "secret", getEnvMulti([]string{"DRAKKAR_SECRET", "TELEMETRY_SECRET"}, ""), "Realm server secret token")
 	flag.StringVar(&cfg.LogPath, "log", getEnv("DRAKKAR_LOG_PATH", ""), "Path to Valheim server.log or Player.log")
 	
@@ -54,6 +59,16 @@ func LoadConfig() Config {
 	flag.BoolVar(&cfg.CheckUpdate, "check-update", false, "Check for newer releases of Drakkar on GitHub and exit")
 
 	flag.Parse()
+
+	if standalone {
+		cfg.DashboardURL = ""
+	} else if cfg.DashboardURL == "" && defaultURL == "" {
+		if cfg.Secret != "" {
+			cfg.DashboardURL = "https://valheim-dash.vercel.app"
+		} else {
+			cfg.DashboardURL = "http://localhost:3000"
+		}
+	}
 
 	if cfg.LogPath == "" {
 		cfg.LogPath = resolveDefaultLogPath()

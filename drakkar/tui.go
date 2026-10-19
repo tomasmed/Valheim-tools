@@ -361,7 +361,10 @@ func formatHttpStatus(status string) string {
 	if strings.Contains(status, "200") || strings.Contains(status, "OK") {
 		return styleCategoryPlayer.Render(status)
 	}
-	if strings.Contains(status, "ERR") {
+	if strings.Contains(status, "STANDALONE") || strings.Contains(status, "LOCAL") {
+		return styleSubtitle.Render(status)
+	}
+	if strings.Contains(status, "ERR") || strings.Contains(status, "401") || strings.Contains(status, "403") || strings.Contains(status, "OFFLINE") {
 		return styleCategoryCombat.Render(status)
 	}
 	return styleSubtitle.Render(status)
