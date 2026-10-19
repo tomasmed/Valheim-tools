@@ -27,6 +27,7 @@ type StateTracker struct {
 	mu            sync.RWMutex
 	Server        ServerStatus
 	ActivePlayers map[string]*PlayerSession // Key: player name
+	WorldOverride string
 }
 
 // NewStateTracker initializes a blank StateTracker
@@ -301,6 +302,9 @@ func (st *StateTracker) GetSnapshot() (ServerStatus, []PlayerSession) {
 	defer st.mu.RUnlock()
 
 	srvClone := st.Server
+	if st.WorldOverride != "" {
+		srvClone.WorldName = st.WorldOverride
+	}
 	players := make([]PlayerSession, 0, len(st.ActivePlayers))
 	for _, p := range st.ActivePlayers {
 		players = append(players, *p)

@@ -66,6 +66,9 @@ func main() {
 	}
 
 	tracker := NewStateTracker()
+	if cfg.WorldOverride != "" {
+		tracker.WorldOverride = cfg.WorldOverride
+	}
 	client := NewHTTPClient(cfg.DashboardURL, cfg.Secret)
 
 	linesCh := make(chan string, 200)
