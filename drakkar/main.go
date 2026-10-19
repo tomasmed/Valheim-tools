@@ -61,8 +61,14 @@ func main() {
 	defer stop()
 
 	isInteractive := !cfg.NoTUI && term.IsTerminal(int(os.Stdout.Fd()))
+	if isInteractive {
+		fmt.Print("\033]0;🛶 Drakkar Helmsman\007")
+	}
 
 	tracker := NewStateTracker()
+	if cfg.WorldOverride != "" {
+		tracker.WorldOverride = cfg.WorldOverride
+	}
 	client := NewHTTPClient(cfg.DashboardURL, cfg.Secret)
 
 	linesCh := make(chan string, 200)

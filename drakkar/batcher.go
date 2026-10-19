@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -166,6 +167,15 @@ func (b *Batcher) flush(ctx context.Context) {
 
 	server, players := b.tracker.GetSnapshot()
 
+	if b.client == nil {
+		b.mu.Lock()
+		b.totalBatches++
+		b.totalEvents += len(eventsToSend)
+		b.lastStatus = "STANDALONE (NO SYNC)"
+		b.mu.Unlock()
+		return
+	}
+
 	payload := TelemetryPayload{
 		Server:  &server,
 		Players: players,
@@ -174,7 +184,7 @@ func (b *Batcher) flush(ctx context.Context) {
 
 	if err := b.client.SendTelemetry(ctx, payload); err != nil {
 		b.mu.Lock()
-		b.lastStatus = "ERR: " + err.Error()
+		b.lastStatus = formatErrorStatus(err)
 		b.mu.Unlock()
 		log.Printf("[Drakkar] Failed to flush telemetry batch: %v", err)
 	} else {
@@ -195,6 +205,13 @@ func (b *Batcher) sendHeartbeat(ctx context.Context) {
 
 	server, players := b.tracker.GetSnapshot()
 
+	if b.client == nil {
+		b.mu.Lock()
+		b.lastStatus = "STANDALONE (NO SYNC)"
+		b.mu.Unlock()
+		return
+	}
+
 	payload := TelemetryPayload{
 		Server:  &server,
 		Players: players,
@@ -202,7 +219,7 @@ func (b *Batcher) sendHeartbeat(ctx context.Context) {
 
 	if err := b.client.SendTelemetry(ctx, payload); err != nil {
 		b.mu.Lock()
-		b.lastStatus = "HEARTBEAT ERR"
+		b.lastStatus = formatErrorStatus(err)
 		b.mu.Unlock()
 		log.Printf("[Drakkar] Heartbeat failed: %v", err)
 	} else {
@@ -210,5 +227,30 @@ func (b *Batcher) sendHeartbeat(ctx context.Context) {
 		b.lastStatus = "HEARTBEAT OK"
 		b.mu.Unlock()
 		log.Printf("[Drakkar] Heartbeat sent to Mead Hall (server online, players: %d)", len(players))
+	}
+}
+
+// formatErrorStatus converts errors into concise, human-readable status codes for the HUD
+func formatErrorStatus(err error) string {
+	if err == nil {
+		return "HTTP 200 OK"
+	}
+	errStr := err.Error()
+	switch {
+	case strings.Contains(errStr, "401"):
+		return "401 UNAUTHORIZED"
+	case strings.Contains(errStr, "403"):
+		return "403 FORBIDDEN"
+	case strings.Contains(errStr, "refused") || strings.Contains(errStr, "connectex"):
+		return "DASHBOARD OFFLINE"
+	case strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline"):
+		return "TIMEOUT"
+	case strings.Contains(errStr, "404"):
+		return "404 NOT FOUND"
+	default:
+		if len(errStr) > 24 {
+			return "ERR: " + errStr[:21] + "..."
+		}
+		return "ERR: " + errStr
 	}
 }

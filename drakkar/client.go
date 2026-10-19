@@ -22,7 +22,11 @@ type HTTPClient struct {
 
 // NewHTTPClient creates a new HTTPClient instance
 func NewHTTPClient(dashboardURL, secret string) *HTTPClient {
-	endpoint := strings.TrimRight(dashboardURL, "/") + "/api/telemetry"
+	trimmed := strings.TrimSpace(dashboardURL)
+	if trimmed == "" {
+		return nil
+	}
+	endpoint := strings.TrimRight(trimmed, "/") + "/api/telemetry"
 	return &HTTPClient{
 		endpoint: endpoint,
 		secret:   secret,
@@ -34,6 +38,9 @@ func NewHTTPClient(dashboardURL, secret string) *HTTPClient {
 
 // SendTelemetry serializes and posts telemetry with exponential backoff
 func (c *HTTPClient) SendTelemetry(ctx context.Context, payload TelemetryPayload) error {
+	if c == nil || c.endpoint == "" {
+		return nil
+	}
 	payload.Source = "drakkar"
 	if payload.Timestamp == "" {
 		payload.Timestamp = time.Now().UTC().Format(time.RFC3339)

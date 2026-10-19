@@ -207,4 +207,46 @@ func TestStateTracker_ProcessLine_PlayerDeathAndRespawn(t *testing.T) {
 	}
 }
 
+func TestStateTracker_OwnerLogoutAndDeterministicSort(t *testing.T) {
+	tracker := NewStateTracker()
+	now := time.Now()
+
+	// 1. Two players connect
+	tracker.ProcessLine("10/18/2026 19:41:00: Got character ZDOID from Joe : 1617931595:1", now)
+	tracker.ProcessLine("10/18/2026 19:41:32: Got character ZDOID from Jorge : 2057906354:1", now.Add(30*time.Second))
+
+	_, players := tracker.GetSnapshot()
+	if len(players) != 2 || !players[0].IsOnline || !players[1].IsOnline {
+		t.Fatalf("expected 2 active online players, got %+v", players)
+	}
+	// Verify deterministic sorting: Joe (earlier) first, then Jorge
+	if players[0].Name != "Joe" || players[1].Name != "Jorge" {
+		t.Errorf("expected sorted [Joe, Jorge], got [%s, %s]", players[0].Name, players[1].Name)
+	}
+
+	// 2. Jorge disconnects via owner ZDO cleanup line
+	logoutLine := "10/18/2026 20:15:57: Destroying abandoned non persistent zdo 2057906354:1579 owner 2057906354"
+	events := tracker.ProcessLine(logoutLine, now.Add(1*time.Hour))
+	if len(events) == 0 {
+		t.Fatalf("expected logout event for Jorge by owner id, got 0")
+	}
+
+	// 3. Reconcile with server player count line
+	tracker.ProcessLine("10/18/2026 20:15:57: Player connection lost server \"PumaK\" that has join code 077658, now 1 player(s)", now.Add(1*time.Hour))
+
+	server, players := tracker.GetSnapshot()
+	if *server.CurrentPlayers != 1 {
+		t.Errorf("expected 1 current player from server, got %d", *server.CurrentPlayers)
+	}
+
+	// Online players must be first in deterministic snapshot
+	if !players[0].IsOnline || players[0].Name != "Joe" {
+		t.Errorf("expected online player Joe first, got %+v", players[0])
+	}
+	if players[1].IsOnline || players[1].Name != "Jorge" {
+		t.Errorf("expected offline player Jorge second, got %+v", players[1])
+	}
+}
+
+
 

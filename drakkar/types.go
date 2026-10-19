@@ -30,6 +30,7 @@ type PlayerSession struct {
 	DisconnectedAt string `json:"disconnectedAt,omitempty"`
 	IsOnline       bool   `json:"isOnline"`
 	SteamID        string `json:"steamId,omitempty"`
+	PeerID         string `json:"peerId,omitempty"`
 }
 
 // ServerStatus contains mutable metadata about the Valheim server

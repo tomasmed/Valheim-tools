@@ -51,6 +51,7 @@ func NewTUIModel(ctx context.Context, cancel context.CancelFunc, cfg Config, tra
 
 func (m *TUIModel) Init() tea.Cmd {
 	return tea.Batch(
+		tea.SetWindowTitle("🛶 Drakkar Helmsman"),
 		tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		}),
@@ -125,9 +126,21 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewportContent()
 
 	case tickMsg:
-		cmds = append(cmds, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-			return tickMsg(t)
-		}))
+		server, players := m.tracker.GetSnapshot()
+		title := "🛶 Drakkar Helmsman"
+		onlineCount := len(getOnlineWarriors(players))
+		if server.JoinCode != "" {
+			title = fmt.Sprintf("🛶 Drakkar [%s] • %d online", server.JoinCode, onlineCount)
+		} else if server.WorldName != "" {
+			title = fmt.Sprintf("🛶 Drakkar • %s (%d online)", server.WorldName, onlineCount)
+		}
+
+		cmds = append(cmds,
+			tea.SetWindowTitle(title),
+			tea.Tick(time.Second, func(t time.Time) tea.Msg {
+				return tickMsg(t)
+			}),
+		)
 
 	case toastClearMsg:
 		m.toastMsg = ""
@@ -279,12 +292,13 @@ func (m *TUIModel) View() string {
 
 	topGrid := lipgloss.JoinHorizontal(lipgloss.Top, cardJoinCode, " ", cardProcess, " ", cardTelemetry)
 
-	// 3. Active Warriors Roster Card
-	warriorsContent := renderWarriorsRoster(players)
+	// 3. Active Warriors Roster Card (Only currently online warriors)
+	onlineWarriors := getOnlineWarriors(players)
+	warriorsContent := renderWarriorsRoster(onlineWarriors)
 	warriorsBox := styleCard.Width(m.width - 4).Render(
 		lipgloss.JoinVertical(
 			lipgloss.Left,
-			styleJoinCodeLabel.Render(fmt.Sprintf("⚔️ WARRIORS SEATED AT THE HEARTH (%d)", len(players))),
+			styleJoinCodeLabel.Render(fmt.Sprintf("⚔️ WARRIORS SEATED AT THE HEARTH (%d)", len(onlineWarriors))),
 			warriorsContent,
 		),
 	)
@@ -347,7 +361,10 @@ func formatHttpStatus(status string) string {
 	if strings.Contains(status, "200") || strings.Contains(status, "OK") {
 		return styleCategoryPlayer.Render(status)
 	}
-	if strings.Contains(status, "ERR") {
+	if strings.Contains(status, "STANDALONE") || strings.Contains(status, "LOCAL") {
+		return styleSubtitle.Render(status)
+	}
+	if strings.Contains(status, "ERR") || strings.Contains(status, "401") || strings.Contains(status, "403") || strings.Contains(status, "OFFLINE") {
 		return styleCategoryCombat.Render(status)
 	}
 	return styleSubtitle.Render(status)
@@ -368,24 +385,42 @@ func renderBatchGauge(pending, max int) string {
 	return fmt.Sprintf("%s %d/%d", bar, pending, max)
 }
 
+func getOnlineWarriors(players []PlayerSession) []PlayerSession {
+	var online []PlayerSession
+	for _, p := range players {
+		if p.IsOnline {
+			online = append(online, p)
+		}
+	}
+	return online
+}
+
 func renderWarriorsRoster(players []PlayerSession) string {
-	if len(players) == 0 {
+	onlineWarriors := getOnlineWarriors(players)
+	if len(onlineWarriors) == 0 {
 		return styleSubtitle.Render("No warriors currently in the realm. The mead hall stands quiet.")
 	}
 
 	var rows []string
-	for _, p := range players {
+	for _, p := range onlineWarriors {
 		durStr := "recently joined"
 		if t, err := time.Parse(time.RFC3339, p.ConnectedAt); err == nil {
 			dur := time.Since(t).Truncate(time.Minute)
 			durStr = fmt.Sprintf("%dm online", int(dur.Minutes()))
 		}
 		runeSymbol := "ᚱ"
+		zdoidInfo := ""
+		if p.CharacterZDOID != "" && p.CharacterZDOID != "0:0" {
+			zdoidInfo = fmt.Sprintf("(ZDO: %s)", p.CharacterZDOID)
+		} else if p.CharacterZDOID == "0:0" {
+			zdoidInfo = styleCategoryCombat.Render("(Fallen in Battle)")
+		}
+
 		row := fmt.Sprintf(" %s %s %s %s",
 			styleRune.Render(runeSymbol),
 			styleValue.Render(p.Name),
 			styleSubtitle.Render(fmt.Sprintf("[%s]", durStr)),
-			styleSubtitle.Render(fmt.Sprintf("(ZDO: %s)", p.CharacterZDOID)),
+			styleSubtitle.Render(zdoidInfo),
 		)
 		rows = append(rows, row)
 	}

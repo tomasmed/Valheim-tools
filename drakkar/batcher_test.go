@@ -118,3 +118,30 @@ func TestBatcher_TimerFlush(t *testing.T) {
 		t.Errorf("expected save category, got %s", p.Events[0].Category)
 	}
 }
+
+func TestBatcher_FormatErrorStatus_And_Standalone(t *testing.T) {
+	if s := formatErrorStatus(fmt.Errorf("telemetry rejected with HTTP 401: unauthorized")); s != "401 UNAUTHORIZED" {
+		t.Errorf("expected '401 UNAUTHORIZED', got '%s'", s)
+	}
+	if s := formatErrorStatus(fmt.Errorf("telemetry rejected with HTTP 403: world mismatch")); s != "403 FORBIDDEN" {
+		t.Errorf("expected '403 FORBIDDEN', got '%s'", s)
+	}
+	if s := formatErrorStatus(fmt.Errorf("dial tcp 127.0.0.1:3000: connectex: connection refused")); s != "DASHBOARD OFFLINE" {
+		t.Errorf("expected 'DASHBOARD OFFLINE', got '%s'", s)
+	}
+	if s := formatErrorStatus(nil); s != "HTTP 200 OK" {
+		t.Errorf("expected 'HTTP 200 OK', got '%s'", s)
+	}
+
+	// Standalone mode test (nil client)
+	tracker := NewStateTracker()
+	batcher := NewBatcher(nil, tracker, 5, 2)
+	ctx := context.Background()
+	batcher.sendHeartbeat(ctx)
+
+	stats := batcher.GetStats()
+	if stats.LastStatus != "STANDALONE (NO SYNC)" {
+		t.Errorf("expected 'STANDALONE (NO SYNC)', got '%s'", stats.LastStatus)
+	}
+}
+

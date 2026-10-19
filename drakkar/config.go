@@ -21,14 +21,21 @@ type Config struct {
 	Demo           bool
 	ShowVersion    bool
 	CheckUpdate    bool
+	WorldOverride  string
 }
 
 // LoadConfig parses flags, checks environment variables, and resolves defaults
 func LoadConfig() Config {
 	var cfg Config
 
-	flag.StringVar(&cfg.DashboardURL, "url", getEnv("DRAKKAR_DASHBOARD_URL", "https://valheim-dash.vercel.app"), "Target Valheim Mead Hall dashboard URL")
+	var standalone bool
+	flag.BoolVar(&standalone, "standalone", false, "Run in standalone local monitor mode (no telemetry sync)")
+	flag.BoolVar(&standalone, "offline", false, "Alias for -standalone")
+
+	defaultURL := getEnv("DRAKKAR_DASHBOARD_URL", "https://valheim-dash.vercel.app")
+	flag.StringVar(&cfg.DashboardURL, "url", defaultURL, "Target Valheim Mead Hall dashboard URL")
 	flag.StringVar(&cfg.Secret, "secret", getEnvMulti([]string{"DRAKKAR_SECRET", "TELEMETRY_SECRET"}, ""), "Realm server secret token")
+	flag.StringVar(&cfg.WorldOverride, "world", getEnv("DRAKKAR_WORLD_OVERRIDE", ""), "Override world name in telemetry payload")
 	flag.StringVar(&cfg.LogPath, "log", getEnv("DRAKKAR_LOG_PATH", ""), "Path to Valheim server.log or Player.log")
 	
 	defaultBatchSize := getEnvInt("DRAKKAR_BATCH_SIZE", 25)
@@ -54,6 +61,10 @@ func LoadConfig() Config {
 	flag.BoolVar(&cfg.CheckUpdate, "check-update", false, "Check for newer releases of Drakkar on GitHub and exit")
 
 	flag.Parse()
+
+	if standalone {
+		cfg.DashboardURL = ""
+	}
 
 	if cfg.LogPath == "" {
 		cfg.LogPath = resolveDefaultLogPath()
