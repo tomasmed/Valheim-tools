@@ -51,6 +51,7 @@ func NewTUIModel(ctx context.Context, cancel context.CancelFunc, cfg Config, tra
 
 func (m *TUIModel) Init() tea.Cmd {
 	return tea.Batch(
+		tea.SetWindowTitle("🛶 Drakkar Helmsman"),
 		tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		}),
@@ -125,9 +126,21 @@ func (m *TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewportContent()
 
 	case tickMsg:
-		cmds = append(cmds, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-			return tickMsg(t)
-		}))
+		server, players := m.tracker.GetSnapshot()
+		title := "🛶 Drakkar Helmsman"
+		onlineCount := len(getOnlineWarriors(players))
+		if server.JoinCode != "" {
+			title = fmt.Sprintf("🛶 Drakkar [%s] • %d online", server.JoinCode, onlineCount)
+		} else if server.WorldName != "" {
+			title = fmt.Sprintf("🛶 Drakkar • %s (%d online)", server.WorldName, onlineCount)
+		}
+
+		cmds = append(cmds,
+			tea.SetWindowTitle(title),
+			tea.Tick(time.Second, func(t time.Time) tea.Msg {
+				return tickMsg(t)
+			}),
+		)
 
 	case toastClearMsg:
 		m.toastMsg = ""

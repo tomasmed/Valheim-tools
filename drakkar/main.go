@@ -61,6 +61,9 @@ func main() {
 	defer stop()
 
 	isInteractive := !cfg.NoTUI && term.IsTerminal(int(os.Stdout.Fd()))
+	if isInteractive {
+		fmt.Print("\033]0;🛶 Drakkar Helmsman\007")
+	}
 
 	tracker := NewStateTracker()
 	client := NewHTTPClient(cfg.DashboardURL, cfg.Secret)
