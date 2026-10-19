@@ -83,9 +83,18 @@ func TestTUI_WarriorsRoster(t *testing.T) {
 			CharacterZDOID: "100:1",
 			IsOnline:       true,
 		},
+		{
+			Name:           "HistoricalGhost",
+			ConnectedAt:    time.Now().Add(-24 * time.Hour).Format(time.RFC3339),
+			CharacterZDOID: "200:1",
+			IsOnline:       false,
+		},
 	})
 	if !strings.Contains(roster, "Bjorn") {
 		t.Errorf("expected roster to contain Bjorn, got: %s", roster)
+	}
+	if strings.Contains(roster, "HistoricalGhost") {
+		t.Errorf("expected roster to exclude offline HistoricalGhost, got: %s", roster)
 	}
 }
 
